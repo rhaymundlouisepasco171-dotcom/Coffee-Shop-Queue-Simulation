@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coffee Shop Queue Management Simulation</title>
+    <!-- Tailwind CSS CDN for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js CDN for real-time graphs -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* Minimal custom CSS for canvas and animations, as Tailwind handles most styling */
+        canvas {
+            border: 1px solid #e5e7eb; /* Soft gray border for canvas */
+        }
+        .customer {
+            width: 20px;
+            height: 20px;
+            background-color: #3b82f6; /* Slate blue for customers */
+            border-radius: 50%;
+            position: absolute;
+            transition: all 0.5s ease; /* Smooth animation for movement */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans">
+    <!-- Sticky Header with Project Title -->
+    <header class="sticky top-0 bg-slate-800 text-white p-4 shadow-lg z-10">
+        <h1 class="text-2xl font-bold text-center">Simulation Model: Coffee Shop Dynamics</h1>
+    </header>
+
+    <!-- Main Grid Layout -->
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 p-4 min-h-screen">
+        <!-- Left Sidebar: Control Panel -->
+        <aside class="lg:col-span-1 bg-white p-4 rounded-lg shadow-md">
+            <h2 class="text-xl font-semibold mb-4 text-slate-700">Control Panel</h2>
+            <!-- Customer Arrival Rate Slider -->
+            <div class="mb-4">
+                <label for="arrivalRate" class="block text-sm font-medium text-gray-700">Customer Arrival Rate (per minute)</label>
+                <input type="range" id="arrivalRate" min="0.1" max="5" step="0.1" value="1" class="w-full mt-1">
+                <span id="arrivalRateValue" class="text-sm text-gray-600">1.0</span>
+            </div>
+            <!-- Barista Service Speed Slider -->
+            <div class="mb-4">
+                <label for="serviceSpeed" class="block text-sm font-medium text-gray-700">Barista Service Speed (customers per minute)</label>
+                <input type="range" id="serviceSpeed" min="0.5" max="3" step="0.1" value="1" class="w-full mt-1">
+                <span id="serviceSpeedValue" class="text-sm text-gray-600">1.0</span>
+            </div>
+            <!-- Number of Baristas Slider -->
+            <div class="mb-4">
+                <label for="numBaristas" class="block text-sm font-medium text-gray-700">Number of Baristas</label>
+                <input type="range" id="numBaristas" min="1" max="5" step="1" value="1" class="w-full mt-1">
+                <span id="numBaristasValue" class="text-sm text-gray-600">1</span>
+            </div>
+            <!-- Start/Stop and Reset Buttons -->
+            <div class="flex space-x-2">
+                <button id="startStopBtn" class="flex-1 bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-700">Start Simulation</button>
+                <button id="resetBtn" class="flex-1 bg-gray-600 text-white py-2 px-4 rounded hover:bg-gray-700">Reset</button>
+            </div>
+        </aside>
+
+        <!-- Center: Simulation View -->
+        <main class="lg:col-span-2 bg-white p-4 rounded-lg shadow-md relative">
+            <h2 class="text-xl font-semibold mb-4 text-slate-700">Simulation View</h2>
+            <!-- Canvas for Visual Simulation -->
+            <canvas id="simulationCanvas" width="600" height="400" class="w-full"></canvas>
+            <!-- Queue and Barista Status Display -->
+            <div class="mt-4">
+                <p class="text-sm text-gray-600">Queue Length: <span id="queueLength">0</span></p>
+                <p class="text-sm text-gray-600">Baristas Busy: <span id="baristasBusy">0</span> / <span id="totalBaristas">1</span></p>
+            </div>
+        </main>
+
+        <!-- Right/Bottom: Analytics -->
+        <aside class="lg:col-span-1 bg-white p-4 rounded-lg shadow-md">
+            <h2 class="text-xl font-semibold mb-4 text-slate-700">Analytics</h2>
+            <!-- Real-time Counters -->
+            <div class="mb-4">
+                <p class="text-sm text-gray-600">Total Customers Served: <span id="totalServed">0</span></p>
+                <p class="text-sm text-gray-600">Average Wait Time (seconds): <span id="avgWaitTime">0.00</span></p>
+                <p class="text-sm text-gray-600">Current Queue Length: <span id="currentQueue">0</span></p>
+            </div>
+            <!-- Live Line Chart -->
+            <canvas id="analyticsChart"></canvas>
+        </aside>
+    </div>
+
+    <!-- Embedded JavaScript for Simulation Logic -->
+    <script>
+        // Global Variables for Simulation State
+        let isRunning = false; // Flag to control simulation loop
+        let simulationTime = 0; // Tracks elapsed simulation time in seconds
+        let queue = []; // Array to hold customers in queue (each customer: {arrivalTime, serviceTime})
+        let baristas = []; // Array of barista objects: {status: 'idle' or 'busy', busyUntil: time}
+        let totalServed = 0; // Counter for total customers served
+        let totalWaitTime = 0; // Accumulator for total wait time
+        let chartData = []; // Data for the live chart (time vs queue length)
+        let chart; // Chart.js instance
+
+        // DOM Elements
+        const arrivalRateSlider = document.getElementById('arrivalRate');
+        const serviceSpeedSlider = document.getElementById('serviceSpeed');
+        const numBaristasSlider = document.getElementById('numBaristas');
+        const arrivalRateValue = document.getElementById('arrivalRateValue');
+        const serviceSpeedValue = document.getElementById('serviceSpeedValue');
+        const numBaristasValue = document.getElementById('numBaristasValue');
+        const startStopBtn = document.getElementById('startStopBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const canvas = document.getElementById('simulationCanvas');
+        const ctx = canvas.getContext('2d');
+        const queueLengthSpan = document.getElementById('queueLength');
+        const baristasBusySpan = document.getElementById('baristasBusy');
+        const totalBaristasSpan = document.getElementById('totalBaristas');
+        const totalServedSpan = document.getElementById('totalServed');
+        const avgWaitTimeSpan = document.getElementById('avgWaitTime');
+        const currentQueueSpan = document.getElementById('currentQueue');
+
+        // Initialize Baristas based on slider
+        function initializeBaristas() {
+            const num = parseInt(numBaristasSlider.value);
+            baristas = [];
+            for (let i = 0; i < num; i++) {
+                baristas.push({ status: 'idle', busyUntil: 0 });
+            }
+            totalBaristasSpan.textContent = num;
+        }
+
+        // Reset Simulation Function
+        function resetSimulation() {
+            isRunning = false; // Stop simulation
+            simulationTime = 0;
+            queue = [];
+            totalServed = 0;
+            totalWaitTime = 0;
+            chartData = [];
+            initializeBaristas(); // Reset baristas to idle
+            updateDisplays(); // Update visuals and counters
+            updateChart(); // Reset chart
+            startStopBtn.textContent = 'Start Simulation'; // Reset button text
+        }
+
+        // Update Slider Values in Real-Time
+        arrivalRateSlider.addEventListener('input', () => {
+            arrivalRateValue.textContent = arrivalRateSlider.value;
+        });
+        serviceSpeedSlider.addEventListener('input', () => {
+            serviceSpeedValue.textContent = serviceSpeedSlider.value;
+        });
+        numBaristasSlider.addEventListener('input', () => {
+            numBaristasValue.textContent = numBaristasSlider.value;
+            initializeBaristas(); // Reinitialize baristas on change
+        });
+
+        // Start/Stop Simulation
+        startStopBtn.addEventListener('click', () => {
+            if (isRunning) {
+                isRunning = false;
+                startStopBtn.textContent = 'Start Simulation';
+            } else {
+                isRunning = true;
+                startStopBtn.textContent = 'Stop Simulation';
+                initializeBaristas(); // Ensure baristas are set
+                simulationLoop(); // Start the loop
+            }
+        });
+
+        // Reset Button Event Listener
+        resetBtn.addEventListener('click', resetSimulation);
+
+        // Simulation Loop (runs every 1000ms for 1-second ticks)
+        function simulationLoop() {
+            if (!isRunning) return;
+
+            simulationTime += 1; // Increment time
+
+            // Model Logic: Customer Arrival
+            // Rule: Customers arrive randomly based on Poisson process approximation.
+            // Probability of arrival per second = arrivalRate / 60 (since rate is per minute).
+            const arrivalProb = parseFloat(arrivalRateSlider.value) / 60;
+            if (Math.random() < arrivalProb) {
+                // New customer arrives with a random service time (exponential distribution approximation)
+                const serviceTime = -Math.log(Math.random()) / (parseFloat(serviceSpeedSlider.value) / 60); // Exponential service time
+                queue.push({ arrivalTime: simulationTime, serviceTime: serviceTime });
+            }
+
+            // Model Logic: Barista Service
+            // Rule: Each idle barista takes the next customer from the queue if available.
+            // Service time is determined by the customer's serviceTime.
+            baristas.forEach(barista => {
+                if (barista.status === 'idle' && queue.length > 0) {
+                    const customer = queue.shift(); // Dequeue customer
+                    barista.status = 'busy';
+                    barista.busyUntil = simulationTime + customer.serviceTime;
+                    // Calculate wait time: current time - arrival time
+                    const waitTime = simulationTime - customer.arrivalTime;
+                    totalWaitTime += waitTime;
+                    totalServed += 1;
+                }
+                // Check if barista is done serving
+                if (barista.status === 'busy' && simulationTime >= barista.busyUntil) {
+                    barista.status = 'idle';
+                }
+            });
+
+            // Update Displays
+            updateDisplays();
+
+            // Update Chart Data (every second)
+            chartData.push({ time: simulationTime, queueLength: queue.length });
+            if (chartData.length > 60) chartData.shift(); // Keep last 60 seconds
+            updateChart();
+
+            // Continue loop
+            setTimeout(simulationLoop, 1000);
+        }
+
+        // Update Real-Time Displays
+        function updateDisplays() {
+            queueLengthSpan.textContent = queue.length;
+            currentQueueSpan.textContent = queue.length;
+            const busyCount = baristas.filter(b => b.status === 'busy').length;
+            baristasBusySpan.textContent = busyCount;
+            totalServedSpan.textContent = totalServed;
+            avgWaitTimeSpan.textContent = totalServed > 0 ? (totalWaitTime / totalServed).toFixed(2) : '0.00';
+
+            // Visual Simulation: Draw on Canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            // Draw Queue (customers as circles)
+            queue.forEach((customer, index) => {
+                ctx.beginPath();
+                ctx.arc(50 + index * 30, 200, 10, 0, 2 * Math.PI);
+                ctx.fillStyle = '#3b82f6'; // Slate blue
+                ctx.fill();
+            });
+            // Draw Baristas (as rectangles, green if idle, red if busy)
+            baristas.forEach((barista, index) => {
+                ctx.fillStyle = barista.status === 'idle' ? '#10b981' : '#ef4444'; // Green idle, red busy
+                ctx.fillRect(50 + index * 100, 300, 80, 40);
+                ctx.fillStyle = '#000';
+                ctx.font = '12px Arial';
+                ctx.fillText(`Barista ${index + 1}`, 55 + index * 100, 320);
+            });
+        }
+
+        // Initialize Chart.js
+        function initChart() {
+            const ctxChart = document.getElementById('analyticsChart').getContext('2d');
+            chart = new Chart(ctxChart, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Queue Length Over Time',
+                        data: [],
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        fill: true,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: { title: { display: true, text: 'Time (seconds)' } },
+                        y: { title: { display: true, text: 'Queue Length' }, beginAtZero: true }
+                    }
+                }
+            });
+        }
+
+        // Update Chart
+        function updateChart() {
+            chart.data.labels = chartData.map(d => d.time);
+            chart.data.datasets[0].data = chartData.map(d => d.queueLength);
+            chart.update();
+        }
+
+        // Initialize on Load
+        initializeBaristas();
+        initChart();
+    </script>
+</body>
+</html>
